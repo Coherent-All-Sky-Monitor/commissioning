@@ -1,0 +1,16 @@
+{
+    "instances": {
+        "male_lna": {
+            "timestamp": "2026-07-14T10:44",
+            "cal_file_path": "/Users/pranav/git/casm/commissioning/LNA/s_params/cal_files/SOLT_12_1_00M-1_00G_1001pt.cal",
+            "port1_delay_ps": 111.34970075297258,
+            "port2_delay_ps": 70.84303661039166
+        },
+        "female_lnas": {
+            "timestamp": "2026-07-14T16:28",
+            "cal_file_path": "/Users/pranav/git/casm/commissioning/LNA/s_params/cal_files/SOLT_12_1_00M-1_00G_1001pt.cal",
+            "port1_delay_ps": 67.83574681319637,
+            "port2_delay_ps": 65.80339343440059
+        }
+    }
+}
