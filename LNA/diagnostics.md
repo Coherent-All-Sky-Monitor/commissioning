@@ -8,6 +8,17 @@ This page displays the diagnostic logs of Low Noise Amplifiers (LNAs) recorded d
 
 * **Original Log File:** [lna_diagnostic_log.csv](./s_params/lna_diagnostic_log.csv)
 * **S-Parameter Plots:** Go to the [S-Parameter Sweep Viewer](./lna_data)
+<style>
+  .sortable-header {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s, color 0.2s;
+  }
+  .sortable-header:hover {
+    background-color: rgba(150, 150, 150, 0.15);
+    color: #0366d6;
+  }
+</style>
 
 <div style="margin: 20px 0; display: flex; gap: 10px; align-items: center;">
   <input type="text" id="search-log" placeholder="Search by LNA ID..." style="padding: 8px 12px; width: 100%; max-width: 300px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; background: inherit; color: inherit;">
@@ -19,12 +30,12 @@ This page displays the diagnostic logs of Low Noise Amplifiers (LNAs) recorded d
     <thead>
       <tr style="background-color: rgba(150,150,150,0.1); border-bottom: 2px solid rgba(150,150,150,0.2);">
         <th style="padding: 12px; font-weight: 600;">LNA ID</th>
-        <th style="padding: 12px; font-weight: 600;">Current (mA)</th>
-        <th style="padding: 12px; font-weight: 600;">S11 (dB)</th>
-        <th style="padding: 12px; font-weight: 600;">S21 (dB)</th>
-        <th style="padding: 12px; font-weight: 600;">S12 (dB)</th>
-        <th style="padding: 12px; font-weight: 600;">S22 (dB)</th>
-        <th style="padding: 12px; font-weight: 600;">Timestamp</th>
+        <th class="sortable-header" style="padding: 12px; font-weight: 600;" onclick="toggleSort('current')">Current (mA) <span id="sort-icon-current" style="font-size: 0.85em; opacity: 0.5;"></span></th>
+        <th class="sortable-header" style="padding: 12px; font-weight: 600;" onclick="toggleSort('s11')">S11 (dB) <span id="sort-icon-s11" style="font-size: 0.85em; opacity: 0.5;"></span></th>
+        <th class="sortable-header" style="padding: 12px; font-weight: 600;" onclick="toggleSort('s21')">S21 (dB) <span id="sort-icon-s21" style="font-size: 0.85em; opacity: 0.5;"></span></th>
+        <th class="sortable-header" style="padding: 12px; font-weight: 600;" onclick="toggleSort('s12')">S12 (dB) <span id="sort-icon-s12" style="font-size: 0.85em; opacity: 0.5;"></span></th>
+        <th class="sortable-header" style="padding: 12px; font-weight: 600;" onclick="toggleSort('s22')">S22 (dB) <span id="sort-icon-s22" style="font-size: 0.85em; opacity: 0.5;"></span></th>
+        <th class="sortable-header" style="padding: 12px; font-weight: 600;" onclick="toggleSort('timestamp')">Timestamp <span id="sort-icon-timestamp" style="font-size: 0.85em; opacity: 0.5;"></span></th>
       </tr>
     </thead>
     <tbody id="log-table-body">
@@ -37,6 +48,8 @@ This page displays the diagnostic logs of Low Noise Amplifiers (LNAs) recorded d
 
 <script>
   let logData = [];
+  let sortField = 'timestamp';
+  let sortOrder = 'desc';
 
   fetch('{{ "/LNA/s_params/lna_diagnostic_log.csv" | relative_url }}')
     .then(res => res.text())
@@ -66,14 +79,62 @@ This page displays the diagnostic logs of Low Noise Amplifiers (LNAs) recorded d
         }
       }
       
-      // Reverse order (newest first)
-      logData.reverse();
-      renderTable(logData);
+      updateSortIcons();
+      renderTable(getSortedAndFilteredData());
     })
     .catch(err => {
       document.getElementById('log-table-body').innerHTML = '<tr><td colspan="7" style="padding: 20px; text-align: center; color: red;">Error loading CSV file.</td></tr>';
       console.error(err);
     });
+
+  function getSortedAndFilteredData() {
+    const query = document.getElementById('search-log').value.toLowerCase().trim();
+    let data = logData.filter(row => row.id.toLowerCase().includes(query));
+    
+    if (sortField) {
+      data.sort((a, b) => {
+        let valA = a[sortField];
+        let valB = b[sortField];
+        
+        if (['current', 's11', 's21', 's12', 's22'].includes(sortField)) {
+          valA = parseFloat(valA) || 0;
+          valB = parseFloat(valB) || 0;
+        }
+        
+        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    
+    return data;
+  }
+
+  function updateSortIcons() {
+    const fields = ['current', 's11', 's21', 's12', 's22', 'timestamp'];
+    fields.forEach(field => {
+      const el = document.getElementById(`sort-icon-${field}`);
+      if (!el) return;
+      if (sortField === field) {
+        el.textContent = sortOrder === 'asc' ? ' ▲' : ' ▼';
+        el.style.opacity = '1';
+      } else {
+        el.textContent = ' ⇅';
+        el.style.opacity = '0.4';
+      }
+    });
+  }
+
+  window.toggleSort = function(field) {
+    if (sortField === field) {
+      sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortField = field;
+      sortOrder = 'asc';
+    }
+    updateSortIcons();
+    renderTable(getSortedAndFilteredData());
+  };
 
   function renderTable(data) {
     const tbody = document.getElementById('log-table-body');
@@ -102,10 +163,6 @@ This page displays the diagnostic logs of Low Noise Amplifiers (LNAs) recorded d
   }
 
   document.getElementById('search-log').oninput = function(e) {
-    const query = e.target.value.toLowerCase().trim();
-    const filtered = logData.filter(row => 
-      row.id.toLowerCase().includes(query)
-    );
-    renderTable(filtered);
+    renderTable(getSortedAndFilteredData());
   };
 </script>
