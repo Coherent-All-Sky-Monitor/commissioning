@@ -24,6 +24,8 @@ The receiver LNAs are characterized for both S-parameters (using a LibreVNA) and
   - **[Touchstone Directory (`LNA/s_params/touchstone`)](./LNA/s_params/touchstone/)**: Raw `.s2p` Touchstone data files.
 - **[Noise Figure Workspace (`LNA/noise_figure`)](./LNA/noise_figure/)**:
   - **[Noise Figure Guide (`LNA/noise_figure/README.md`)](./LNA/noise_figure/README.md)**: Notes and setups for receiver noise measurements.
+  - **[Modified LNA Data Directory (`LNA/noise_figure/data/modified/`)](./LNA/noise_figure/data/modified/)**
+  - **[Unmodified LNA Data Directory (`LNA/noise_figure/data/unmodified/`)](./LNA/noise_figure/data/unmodified/)**
 
 ### 2. Antenna/ BB
 - **[Antenna Workspace (`Antenna`)](./Antenna/)**:

@@ -4,10 +4,10 @@ This directory contains the Python automation scripts, raw measurement data, and
 
 ## Contents of the directory
 
-- `data/modified/`: Raw NPZ dataset sweeps (`_hot_.npz`, `_cold_.npz`) and summary plots for modified LNAs.
-- `data/unmodified/`: Raw NPZ dataset sweeps (`_hot_.npz`, `_cold_.npz`) and summary plots for unmodified LNAs.
-- `plots/modified/`:  plot  for modified LNAs.
-- `plots/unmodified/`:  plot  for unmodified LNAs.
+- [**`data/modified/`**](data/modified/): Raw NPZ dataset sweeps (`_hot_.npz`, `_cold_.npz`) for modified LNAs.
+- [**`data/unmodified/`**](data/unmodified/): Raw NPZ dataset sweeps (`_hot_.npz`, `_cold_.npz`) for unmodified LNAs.
+- [**`plots/modified/`**](plots/modified/): Generated Noise Figure plots for modified LNAs.
+- [**`plots/unmodified/`**](plots/unmodified/): Generated Noise Figure plots for unmodified LNAs.
 
 ## Python Scripts & Utilities
 
@@ -56,15 +56,24 @@ Core utility module supporting instrument interaction and data serialization.
 
 ---
 
-## Noise Figure Plots
+---
+
+## Noise Figure Plots & Data
+
+Raw measurement data files (`.npz`) and plots are organized into:
+- [**Modified LNA Data Directory (`data/modified/`)**](data/modified/)
+- [**Unmodified LNA Data Directory (`data/unmodified/`)**](data/unmodified/)
 
 {% assign files_sorted = site.static_files | sort: "path" %}
 
-### Modified LNA Plots
+### Modified LNA Plots & Data ([browse folder](data/modified/))
 
 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin-top: 20px;">
 {% for file in files_sorted %}
   {% if file.path contains "/LNA/noise_figure/plots/modified/" and file.extname == ".png" %}
+    {% assign lna_id = file.basename | remove: "_nf" %}
+    {% assign cold_path = "/LNA/noise_figure/data/modified/" | append: lna_id | append: "_cold_.npz" %}
+    {% assign hot_path = "/LNA/noise_figure/data/modified/" | append: lna_id | append: "_hot_.npz" %}
     <div class="lna-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
       <h4 style="margin: 0;">{{ file.basename }}</h4>
       <div style="aspect-ratio: 1.6; overflow: hidden; border-radius: 4px; border: 1px solid #eee;">
@@ -72,17 +81,24 @@ Core utility module supporting instrument interaction and data serialization.
           <img src="{{ file.path | relative_url }}" alt="{{ file.basename }} Plot" style="width: 100%; height: 100%; object-fit: cover;" loading="lazy">
         </a>
       </div>
-      <a href="{{ file.path | relative_url }}" target="_blank" style="text-align: center; font-size: 0.85em; border: 1px solid #ccc; padding: 6px 12px; border-radius: 4px; text-decoration: none; color: inherit;">View Full Plot</a>
+      <div style="margin-top: auto; display: flex; gap: 6px; font-size: 0.85em; flex-wrap: wrap;">
+        <a href="{{ file.path | relative_url }}" target="_blank" style="flex: 1; text-align: center; border: 1px solid #ccc; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: inherit; background-color: #fafafa;">View Plot</a>
+        <a href="{{ cold_path | relative_url }}" download style="border: 1px solid #0366d6; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: #0366d6; background-color: #f0f7ff;">Cold NPZ</a>
+        <a href="{{ hot_path | relative_url }}" download style="border: 1px solid #0366d6; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: #0366d6; background-color: #f0f7ff;">Hot NPZ</a>
+      </div>
     </div>
   {% endif %}
 {% endfor %}
 </div>
 
-### Unmodified LNA Plots
+### Unmodified LNA Plots & Data ([browse folder](data/unmodified/))
 
 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin-top: 20px;">
 {% for file in files_sorted %}
   {% if file.path contains "/LNA/noise_figure/plots/unmodified/" and file.extname == ".png" %}
+    {% assign lna_id = file.basename | remove: "_nf" %}
+    {% assign cold_path = "/LNA/noise_figure/data/unmodified/" | append: lna_id | append: "_cold_.npz" %}
+    {% assign hot_path = "/LNA/noise_figure/data/unmodified/" | append: lna_id | append: "_hot_.npz" %}
     <div class="lna-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
       <h4 style="margin: 0;">{{ file.basename }}</h4>
       <div style="aspect-ratio: 1.6; overflow: hidden; border-radius: 4px; border: 1px solid #eee;">
@@ -90,7 +106,11 @@ Core utility module supporting instrument interaction and data serialization.
           <img src="{{ file.path | relative_url }}" alt="{{ file.basename }} Plot" style="width: 100%; height: 100%; object-fit: cover;" loading="lazy">
         </a>
       </div>
-      <a href="{{ file.path | relative_url }}" target="_blank" style="text-align: center; font-size: 0.85em; border: 1px solid #ccc; padding: 6px 12px; border-radius: 4px; text-decoration: none; color: inherit;">View Full Plot</a>
+      <div style="margin-top: auto; display: flex; gap: 6px; font-size: 0.85em; flex-wrap: wrap;">
+        <a href="{{ file.path | relative_url }}" target="_blank" style="flex: 1; text-align: center; border: 1px solid #ccc; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: inherit; background-color: #fafafa;">View Plot</a>
+        <a href="{{ cold_path | relative_url }}" download style="border: 1px solid #0366d6; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: #0366d6; background-color: #f0f7ff;">Cold NPZ</a>
+        <a href="{{ hot_path | relative_url }}" download style="border: 1px solid #0366d6; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: #0366d6; background-color: #f0f7ff;">Hot NPZ</a>
+      </div>
     </div>
   {% endif %}
 {% endfor %}
