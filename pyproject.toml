@@ -1,0 +1,21 @@
+[project]
+name = "casm-commissioning"
+version = "0.1.0"
+description = "CASM hardware commissioning: measurement scripts and data"
+requires-python = ">=3.14"
+dependencies = [
+    # S-parameter tool (tools/vna)
+    "numpy>=2.5.3",
+    "matplotlib>=3.11.2",
+    "scikit-rf>=2.1.0",
+    "rich>=15.0.0",
+    # Noise figure scripts (LNA/noise_figure)
+    "pyvisa>=1.16.2",
+    "pyvisa-py>=0.8.1",
+]
+
+[tool.uv]
+# Scripts and data only; nothing to build or install as a package
+package = false
+# Always use uv's own Python build (not Homebrew/system) so every machine runs the same interpreter
+python-preference = "only-managed"

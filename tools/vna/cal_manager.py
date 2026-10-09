@@ -8,11 +8,42 @@ from rich.table import Table
 console = Console()
 
 class CalInstancesManager:
-    """Manages saved calibration instances and their port extensions (de-embedding)."""
-    
-    def __init__(self, json_path="cal_instances.json"):
-        self.json_path = json_path
+    """
+    Manages saved calibration instances and their port extensions (de-embedding).
+
+    Instances are machine-specific, so they live in a git-ignored local directory:
+        <local_dir>/cal_instances.json
+        <local_dir>/cal_files/*.cal
+    Relative cal_file_path entries are resolved against local_dir.
+    """
+
+    def __init__(self, local_dir):
+        self.local_dir = local_dir
+        self.cal_dir = os.path.join(local_dir, "cal_files")
+        self.json_path = os.path.join(local_dir, "cal_instances.json")
+        os.makedirs(self.cal_dir, exist_ok=True)
         self.instances = self._load()
+
+    def resolve_cal_path(self, cal_file_path):
+        """Return an absolute path for a stored cal_file_path."""
+        path = os.path.expanduser(cal_file_path)
+        if not os.path.isabs(path):
+            path = os.path.join(self.local_dir, path)
+        return path
+
+    @staticmethod
+    def describe_age(timestamp):
+        """Human-readable age of an instance, e.g. '3 days ago'."""
+        try:
+            created = datetime.datetime.fromisoformat(timestamp)
+        except (TypeError, ValueError):
+            return "unknown age"
+        hours = (datetime.datetime.now() - created).total_seconds() / 3600
+        if hours < 1:
+            return "<1 hour ago"
+        if hours < 48:
+            return f"{hours:.0f} hours ago"
+        return f"{hours / 24:.0f} days ago"
 
     def _load(self):
         if os.path.exists(self.json_path):
@@ -56,17 +87,12 @@ class CalInstancesManager:
                     console.print("  [yellow]⚠ No saved instances found. Please create one.[/]\n")
                     continue
                     
-                table = Table(title="Saved Calibration Instances")
-                table.add_column("Name", style="bold cyan")
-                table.add_column("Created", style="dim")
-                table.add_column("File")
-                table.add_column("P1 Delay (ps)")
-                table.add_column("P2 Delay (ps)")
-                
+                # Calibrations drift, so show how old each one is
                 names = list(self.instances.keys())
                 console.print(f"\n  [bold]Select Instance to Load:[/]")
                 for i, n in enumerate(names, 1):
-                    console.print(f"  [cyan]{i}[/] — {n}")
+                    ts = self.instances[n].get("timestamp", "")
+                    console.print(f"  [cyan]{i}[/] — {n} [dim](created {ts}, {self.describe_age(ts)})[/]")
                 console.print(f"  [cyan]0[/] — Cancel")
                 
                 idx_str = Prompt.ask("  Select option", choices=[str(i) for i in range(len(names)+1)], default="0")
@@ -75,7 +101,7 @@ class CalInstancesManager:
                     
                 sel = names[int(idx_str)-1]
                 inst = self.instances[sel]
-                cal_file = os.path.expanduser(inst["cal_file_path"])
+                cal_file = self.resolve_cal_path(inst["cal_file_path"])
                 
                 try:
                     controller.load_calibration(cal_file)
@@ -126,10 +152,8 @@ class CalInstancesManager:
                     console.print(f"  [red]✗ Instance name '{name}' already exists. Please choose a different name.[/]\n")
                     continue
                 
-                cal_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cal_files")
-                os.makedirs(cal_dir, exist_ok=True)
-                
-                cal_files = [f for f in os.listdir(cal_dir) if f.endswith(".cal")]
+                cal_dir = self.cal_dir
+                cal_files = sorted(f for f in os.listdir(cal_dir) if f.endswith(".cal"))
                 if not cal_files:
                     console.print(f"  [yellow]⚠ No .cal files found in {cal_dir}[/]")
                     console.print("  [yellow]Please save your calibration from LibreVNA-GUI into that directory first.[/]\n")
@@ -140,7 +164,8 @@ class CalInstancesManager:
                     console.print(f"  [cyan]{i}[/] — {f}")
                 
                 f_idx = Prompt.ask("  Select file", choices=[str(i) for i in range(1, len(cal_files)+1)])
-                cal_path = os.path.join(cal_dir, cal_files[int(f_idx)-1])
+                cal_rel = os.path.join("cal_files", cal_files[int(f_idx)-1])
+                cal_path = self.resolve_cal_path(cal_rel)
                 
                 try:
                     controller.load_calibration(cal_path)
@@ -151,7 +176,7 @@ class CalInstancesManager:
                 
                 self.instances[name] = {
                     "timestamp": datetime.datetime.now().isoformat(timespec='minutes'),
-                    "cal_file_path": cal_path,
+                    "cal_file_path": cal_rel,
                     "port1_delay_ps": 0.0,
                     "port2_delay_ps": 0.0
                 }

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-LNA S-Parameter Measurement Tool for LibreVNA
-================================================
-CLI tool for automated LNA characterization using
-LibreVNA + LibreCAL via SCPI over TCP.
+S-Parameter Measurement Tool for LibreVNA
+=========================================
+CLI tool for automated 2-port characterization of CASM receiver
+components (LNAs, backboards) using LibreVNA + LibreCAL via SCPI over TCP.
 
 Prerequisites:
     - LibreVNA-GUI running with SCPI server enabled (port 19542)
@@ -11,7 +11,8 @@ Prerequisites:
     - Python packages: rich, numpy, matplotlib, scikit-rf
 
 Usage:
-    python lna_sparams.py
+    python sparams.py --device lna
+    python sparams.py --device bac
 
 Author: CASM Commissioning
 """
@@ -19,7 +20,7 @@ Author: CASM Commissioning
 import csv
 import datetime
 import os
-import re
+import socket
 import sys
 import time
 import subprocess
@@ -27,9 +28,6 @@ import atexit
 import argparse
 
 import numpy as np
-import matplotlib
-import matplotlib
-
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
@@ -49,9 +47,6 @@ from rich import box
 from libreVNA import libreVNA
 from cal_manager import CalInstancesManager, apply_port_extension
 
-import numpy as np
-import datetime
-
 # ─── Configurable Constants ─────────────────────────────────────────────────
 
 HIGHLIGHT_FREQ_RANGE = (390e6, 483e6)   # Hz — shaded band on plots
@@ -62,26 +57,66 @@ DEFAULT_NUM_POINTS = 501                 # Number of sweep points
 VNA_HOST = "localhost"
 VNA_PORT = 19542
 
-# Output paths (relative to this script's directory)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TOUCHSTONE_DIR = os.path.join(SCRIPT_DIR, "touchstone")
-PLOTS_DIR = os.path.join(SCRIPT_DIR, "plots")
-CSV_FILE = os.path.join(SCRIPT_DIR, "lna_diagnostic_log.csv")
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+
+# Machine-specific calibration instances and .cal files (git-ignored)
+LOCAL_DIR = os.path.join(SCRIPT_DIR, "local")
+
+# ─── Device Profiles ───────────────────────────────────────────────────────
+# Everything that differs between device types. Part numbers are
+# <prefix><5 digits>P<polarization>, e.g. LNA00206P1 or BAC00018P1.
+# data_dir is relative to the repo root and holds touchstone/, plots/ and the log.
+
+DEVICES = {
+    "lna": {
+        "label": "LNA",
+        "prefix": "LNA",
+        "data_dir": "LNA/s_params",
+        "log_file": "lna_diagnostic_log.csv",
+        "max_power_dbm": -40.0,   # LNA input safety limit
+        "s21_good_db": 33.0,      # S21 at DIAGNOSTIC_FREQ shown green above this (nominal ~34.5 dB)
+        "current_ma_range": None, # current draw shown green inside this range
+    },
+    "bac": {
+        "label": "Backboard",
+        "prefix": "BAC",
+        "data_dir": "BB/s_params",
+        "log_file": "bac_diagnostic_log.csv",
+        "max_power_dbm": -40.0,
+        "s21_good_db": 42.5,      # nominal ~44 dB
+        "current_ma_range": (50.0, 60.0),  # nominal ~55 mA
+    },
+}
+
+# Set from the selected device in main()
+DEVICE = None
+TOUCHSTONE_DIR = None
+PLOTS_DIR = None
+CSV_FILE = None
 
 console = Console()
 
+
+def select_device(key):
+    """Point output paths at the chosen device's data directory."""
+    global DEVICE, TOUCHSTONE_DIR, PLOTS_DIR, CSV_FILE
+    DEVICE = DEVICES[key]
+    data_dir = os.path.join(REPO_ROOT, DEVICE["data_dir"])
+    TOUCHSTONE_DIR = os.path.join(data_dir, "touchstone")
+    PLOTS_DIR = os.path.join(data_dir, "plots")
+    CSV_FILE = os.path.join(data_dir, DEVICE["log_file"])
+
 # ─── Part Number Helpers ────────────────────────────────────────────────────
 
-PART_NUMBER_REGEX = re.compile(r'^LNA(\d{5})P([12])$')
+
+def make_part_number(device_num: int, polarization: int) -> str:
+    """Generate part number string: <PREFIX>[00000-99999]P[1-2]."""
+    return f"{DEVICE['prefix']}{device_num:05d}P{polarization}"
 
 
-def make_part_number(lna_num: int, polarization: int) -> str:
-    """Generate part number string: LNA[00000-99999]P[1-2]."""
-    return f"LNA{lna_num:05d}P{polarization}"
-
-
-def validate_lna_number(value: str) -> int:
-    """Validate and return a 5-digit LNA number."""
+def validate_device_number(value: str) -> int:
+    """Validate and return a 5-digit device number."""
     try:
         num = int(value)
     except ValueError:
@@ -235,6 +270,20 @@ class MeasurementManager:
     def __init__(self):
         os.makedirs(TOUCHSTONE_DIR, exist_ok=True)
         os.makedirs(PLOTS_DIR, exist_ok=True)
+        # Calibrations differ per machine and drift over time, so every
+        # touchstone file and log row records which one was used.
+        self.cal_info = {"cal_instance": "none", "cal_created": "", "host": socket.gethostname()}
+
+    def set_calibration(self, inst_name, inst, delay_p1, delay_p2):
+        """Record the calibration instance in effect for subsequent measurements."""
+        self.cal_info = {
+            "cal_instance": inst_name or "none",
+            "cal_created": inst.get("timestamp", "") if inst else "",
+            "cal_file": os.path.basename(inst["cal_file_path"]) if inst else "",
+            "port1_delay_ps": round(delay_p1, 2),
+            "port2_delay_ps": round(delay_p2, 2),
+            "host": socket.gethostname(),
+        }
 
     # ── Touchstone ──────────────────────────────────────────────────────
 
@@ -244,7 +293,7 @@ class MeasurementManager:
 
         Args:
             results: dict of {param: [(freq, complex), ...]}
-            part_number: e.g. "LNA00001P1"
+            part_number: e.g. "LNA00001P1" or "BAC00018P1"
             start_freq, stop_freq: for frequency array generation
         """
         if not HAS_SKRF:
@@ -272,6 +321,10 @@ class MeasurementManager:
             s=s_matrix,
             frequency=freq_obj,
             z0=50,
+        )
+        network.comments = "\n".join(
+            [f"measured: {datetime.datetime.now().isoformat(timespec='seconds')}"]
+            + [f"{k}: {v}" for k, v in self.cal_info.items()]
         )
 
         filepath = os.path.join(TOUCHSTONE_DIR, f"{part_number}.s2p")
@@ -469,13 +522,16 @@ class MeasurementManager:
 
     def _write_csv_rows(self, rows):
         """Write all rows to the diagnostic CSV."""
+        # The first 7 columns are read by position on the published
+        # diagnostics page; only append new columns after them.
         fieldnames = [
             'part_number', 'current_draw_mA',
             'S11_dB', 'S21_dB', 'S12_dB', 'S22_dB',
-            'timestamp'
+            'timestamp',
+            'cal_instance', 'cal_created', 'host',
         ]
         with open(CSV_FILE, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
             writer.writeheader()
             writer.writerows(rows)
 
@@ -504,6 +560,9 @@ class MeasurementManager:
             'S12_dB': diag_values['S12'],
             'S22_dB': diag_values['S22'],
             'timestamp': timestamp,
+            'cal_instance': self.cal_info['cal_instance'],
+            'cal_created': self.cal_info['cal_created'],
+            'host': self.cal_info['host'],
         }
 
         rows = self._read_csv_rows()
@@ -521,7 +580,7 @@ def print_banner():
     """Print the startup banner."""
     console.print()
     console.print(Panel.fit(
-        "[bold cyan]LNA S-Parameter Measurement Tool[/]\n"
+        f"[bold cyan]{DEVICE['label']} S-Parameter Measurement Tool[/]\n"
         "[dim]LibreVNA + LibreCAL • CASM Commissioning[/]",
         border_style="cyan",
         padding=(1, 4),
@@ -568,15 +627,20 @@ def print_diagnostic_table(part_number, current_draw, diag_values):
     for param in ["S11", "S21", "S12", "S22"]:
         val = diag_values[param]
         # Color-code: green for good gain (S21), yellow for moderate, red for bad
-        if param == "S21":
-            color = "green" if val > 33 else ("yellow" if val > 0 else "red")
+        if param == "S21" and DEVICE["s21_good_db"] is not None:
+            color = "green" if val > DEVICE["s21_good_db"] else ("yellow" if val > 0 else "red")
         elif param in ("S11", "S22"):
             color = "green" if val < -10 else ("yellow" if val < -5 else "red")
         else:
             color = "cyan"
         table.add_row(param, f"[{color}]{val:.3f}[/]")
 
-    table.add_row("Current Draw", f"[magenta]{current_draw} mA[/]")
+    current_range = DEVICE["current_ma_range"]
+    if current_range is None:
+        color = "magenta"
+    else:
+        color = "green" if current_range[0] <= current_draw <= current_range[1] else "red"
+    table.add_row("Current Draw", f"[{color}]{current_draw} mA[/]")
     console.print(table)
     console.print()
 
@@ -675,9 +739,9 @@ def step_enter_dut():
     console.print("[bold]Step 4: Device Under Test[/]")
 
     while True:
-        lna_str = Prompt.ask("  LNA number [00000-99999]")
+        num_str = Prompt.ask(f"  {DEVICE['label']} number [00000-99999]")
         try:
-            lna_num = validate_lna_number(lna_str)
+            device_num = validate_device_number(num_str)
             break
         except ValueError as e:
             console.print(f"  [red]{e}[/]")
@@ -687,7 +751,7 @@ def step_enter_dut():
         polarization = int(pol_str)
         break
 
-    part_number = make_part_number(lna_num, polarization)
+    part_number = make_part_number(device_num, polarization)
 
     while True:
         curr_str = Prompt.ask("  Current draw (mA) [or 'short' / 'abort']")
@@ -799,7 +863,7 @@ def step_measure(controller, part_number, delay_p1=0.0, delay_p2=0.0):
     """Step 5: Perform measurement."""
     console.print(f"[bold]Step 5: Measuring {part_number}[/]")
 
-    # Double check stimulus power level before proceeding to prevent LNA damage
+    # Double check stimulus power level before proceeding to prevent DUT damage
     target_power = controller.power if controller.power is not None else float(DEFAULT_POWER)
     try:
         current_power = float(controller.vna.query(":VNA:STIM:LVL?"))
@@ -810,8 +874,9 @@ def step_measure(controller, part_number, delay_p1=0.0, delay_p2=0.0):
             time.sleep(0.3)
             current_power = float(controller.vna.query(":VNA:STIM:LVL?"))
             
-        if current_power > -39.9:
-            console.print(f"  [red]✗ SAFETY ABORT: VNA power level is {current_power:.1f} dBm (unsafe for LNA, must be <= -40 dBm).[/]\n")
+        max_power = DEVICE["max_power_dbm"]
+        if current_power > max_power + 0.1:
+            console.print(f"  [red]✗ SAFETY ABORT: VNA power level is {current_power:.1f} dBm (unsafe for {DEVICE['label']}, must be <= {max_power:.0f} dBm).[/]\n")
             return None
             
         console.print(f"  [green]✓ Confirmed stimulus power: {current_power:.1f} dBm[/]")
@@ -901,12 +966,21 @@ def step_save_and_report(controller, manager, results, part_number,
 
 def main():
     """Main CLI entry point."""
-    parser = argparse.ArgumentParser(description="LNA S-Parameter Measurement Tool")
+    parser = argparse.ArgumentParser(description="S-Parameter Measurement Tool")
+    parser.add_argument('--device', choices=sorted(DEVICES),
+                        help='Device type to measure (prompted if omitted)')
     parser.add_argument('--headless', action='store_true',
                         help='Run LibreVNA in headless mode (no GUI required)')
     args = parser.parse_args()
 
+    device_key = args.device or Prompt.ask(
+        "Device type", choices=sorted(DEVICES), default="lna"
+    )
+    select_device(device_key)
+
     print_banner()
+    console.print(f"  Saving to: [cyan]{os.path.dirname(CSV_FILE)}[/]")
+    console.print(f"  Calibrations: [cyan]{LOCAL_DIR}[/] [dim](this machine only)[/]\n")
 
     # Headless mode: auto-launch LibreVNA-GUI as background process
     vna_process = None
@@ -941,7 +1015,7 @@ def main():
 
     controller = LibreVNAController()
     manager = MeasurementManager()
-    cal_manager = CalInstancesManager()
+    cal_manager = CalInstancesManager(LOCAL_DIR)
 
     # ── Step 1: Connect ──
     if not step_connect(controller, headless=args.headless):
@@ -1017,6 +1091,10 @@ def main():
             step_verify_calibration(controller, manager, delay_p1, delay_p2)
             break
             
+    manager.set_calibration(
+        inst_name, cal_manager.instances.get(inst_name), delay_p1, delay_p2
+    )
+
     # ── Measurement Loop ──
     try:
         while True:

@@ -9,6 +9,7 @@ Utilities for Siglent SSA3032X Plus (single + python-averaged trace)
 """
 
 import json
+import os
 import datetime
 import pyvisa
 import numpy as np
@@ -399,9 +400,9 @@ def acquire_averaged_trace(sa: SpectrumAnalyzer, n_avg: int, avg_mode: str = "po
     return freq, avg_trace_dbm
 
 
-def save_npz(base_name, hot_cold, freq_hz, trace_dbm, metadata: dict, overwrite=False):
+def save_npz(base_name, hot_cold, freq_hz, trace_dbm, metadata: dict, overwrite=False, out_dir="."):
     """
-    Saves: <base>_<hot|cold>_.npz   (no timestamp in filename)
+    Saves: <out_dir>/<base>_<hot|cold>_.npz   (no timestamp in filename)
     """
     base_name = (base_name or "").strip()
     hot_cold = (hot_cold or "").strip().lower()
@@ -411,9 +412,9 @@ def save_npz(base_name, hot_cold, freq_hz, trace_dbm, metadata: dict, overwrite=
     if hot_cold not in ("hot", "cold"):
         raise ValueError("hot_cold must be 'hot' or 'cold'")
 
-    fname = f"{base_name}_{hot_cold}_.npz"
+    os.makedirs(out_dir, exist_ok=True)
+    fname = os.path.join(out_dir, f"{base_name}_{hot_cold}_.npz")
 
-    import os
     if os.path.exists(fname) and not overwrite:
         raise FileExistsError(f"{fname} already exists (set overwrite=True or choose a new base name).")
 

@@ -1,0 +1,17 @@
+# PLACEHOLDER ENR table for the eBay 5.5 dB noise source.
+# Every point is the nominal 5.5 dB; replace with the measured/calibrated values
+# (and delete the PLACEHOLDER word above so the analysis stops warning).
+# Columns: frequency in MHz, excess noise ratio in dB. Values are interpolated
+# linearly in dB between points; add as many rows as you have.
+freq_mhz,enr_db
+10,5.5
+100,5.5
+200,5.5
+300,5.5
+400,5.5
+500,5.5
+600,5.5
+700,5.5
+800,5.5
+900,5.5
+1000,5.5

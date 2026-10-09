@@ -1,0 +1,6 @@
+{% comment %}
+  Download button for one data file, greyed out with a "No data" tooltip if the
+  file isn't in the site. Params: path (site path, e.g. "/LNA/.../x_cold_.npz"), label.
+  Expects `static_paths` (site.static_files | map: "path") assigned by the caller.
+{% endcomment %}
+{% if static_paths contains include.path %}<a href="{{ include.path | relative_url }}" download style="border: 1px solid #0366d6; padding: 6px 8px; border-radius: 4px; text-decoration: none; color: #0366d6; background-color: #f0f7ff;">{{ include.label }}</a>{% else %}<span title="No data" aria-disabled="true" style="border: 1px solid #ccc; padding: 6px 8px; border-radius: 4px; color: #999; background-color: #f2f2f2; cursor: not-allowed;">{{ include.label }}</span>{% endif %}

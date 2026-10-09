@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Per-machine VNA calibration instances and .cal files
+tools/vna/local/
