@@ -6,13 +6,44 @@ I will record all of CASM hardware commissioning data and files in this reposito
 
 ## Setup
 
-The only requirement is [uv](https://docs.astral.sh/uv/), which installs the right Python version and the exact package versions pinned in `uv.lock`:
+Clone the repository and go into it:
+
+```bash
+git clone https://github.com/Coherent-All-Sky-Monitor/commissioning.git
+cd commissioning
+```
+
+The only other requirement is [uv](https://docs.astral.sh/uv/), which installs the right Python version and the exact package versions pinned in `uv.lock`:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-The measurement scripts in the repo root (`./lna_sparams.sh`, `./bac_sparams.sh`) use uv automatically. To run any other script in the repo, prefix it with `uv run`, e.g. `uv run python tools/vna/test_vna_scpi.py`. `uv run` works from any folder inside the repo.
+All commands below are run from the `commissioning` folder. To get the latest scripts and data later, run `git pull` there.
+
+There are two ways to run things; both use the same environment in `.venv/`.
+
+**1. Root scripts (nothing to set up).** The scripts in the repo root work from any folder. They use an activated virtual environment if there is one (including when launched with `uv run ./lna_sparams.sh`); otherwise they use uv, which creates `.venv/` on first use. Without uv they fall back to an existing `.venv/`.
+
+| Script | Does |
+|---|---|
+| `./lna_sparams.sh`, `./bac_sparams.sh` | Measure LNA / backboard S-parameters |
+| `./lna_nf_measure.sh`, `./bac_nf_measure.sh` | Acquire LNA / backboard noise-figure traces |
+| `./lna_nf.sh`, `./bac_nf.sh` | Analyze LNA / backboard noise figure |
+
+Any other script runs with a `uv run` prefix from any folder inside the repo, e.g. `uv run python tools/vna/test_vna_scpi.py`.
+
+**2. A regular virtual environment.** Create (or update) `.venv/` and activate it, then call the Python scripts directly:
+
+```bash
+uv sync                      # create/update .venv with the pinned Python and packages
+source .venv/bin/activate    # activate it (deactivate with `deactivate`)
+
+python tools/vna/sparams.py --device lna            # same as ./lna_sparams.sh
+python tools/noise_figure/nf.py --device bac --all  # same as ./bac_nf.sh --all
+```
+
+Re-run `uv sync` after pulling changes to `pyproject.toml` / `uv.lock`. To upgrade every package to its latest release, run `uv lock --upgrade && uv sync` and commit the new `uv.lock`.
 
 ---
 # as of July 20

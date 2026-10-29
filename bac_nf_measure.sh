@@ -4,13 +4,6 @@
 # See BB/noise_figure/README.md for the procedure.
 #
 # Usage: ./bac_nf_measure.sh
-set -euo pipefail
-
-if ! command -v uv >/dev/null 2>&1; then
-    echo "uv is not installed. Install it with:" >&2
-    echo "    curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
-    exit 1
-fi
-
-cd "$(dirname "$0")"
-exec uv run python tools/noise_figure/spectrum_analyzer.py --device bac "$@"
+#
+# Runs with uv, or with an activated virtual environment (see README "Setup").
+exec "$(dirname "$0")/tools/run_python.sh" tools/noise_figure/spectrum_analyzer.py --device bac "$@"

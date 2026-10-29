@@ -22,7 +22,7 @@ From the repo root (uses [uv](https://docs.astral.sh/uv/)):
 ./bac_nf.sh --all                        # Backboard: re-analyze everything
 ```
 
-These are shortcuts for `uv run python tools/noise_figure/<script>.py --device lna|bac`.
+These are shortcuts for `uv run python tools/noise_figure/<script>.py --device lna|bac`. With an activated virtual environment (`uv sync && source .venv/bin/activate`), call `python tools/noise_figure/<script>.py --device lna|bac` directly.
 
 ## Hot/cold reference methods
 

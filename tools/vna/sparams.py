@@ -76,7 +76,8 @@ DEVICES = {
         "log_file": "lna_diagnostic_log.csv",
         "max_power_dbm": -40.0,   # LNA input safety limit
         "s21_good_db": 33.0,      # S21 at DIAGNOSTIC_FREQ shown green above this (nominal ~34.5 dB)
-        "current_ma_range": None, # current draw shown green inside this range
+        "current_ma": None,       # current draw: {"nominal", "green_tol", "yellow_tol"} in mA
+        "band_table": False,      # show min/max/median over HIGHLIGHT_FREQ_RANGE too (display only)
     },
     "bac": {
         "label": "Backboard",
@@ -84,8 +85,24 @@ DEVICES = {
         "data_dir": "BB/s_params",
         "log_file": "bac_diagnostic_log.csv",
         "max_power_dbm": -40.0,
-        "s21_good_db": 42.5,      # nominal ~44 dB
-        "current_ma_range": (50.0, 60.0),  # nominal ~55 mA
+        "s21_good_db": None,      # colours come from "reference" below
+        # Spread allowed around the nominal current draw (mA)
+        "current_ma": {"nominal": 55.0, "green_tol": 3.0, "yellow_tol": 6.0},
+        "band_table": True,
+        # Simulated S-parameters (dB) over 390-483 MHz; measured values are coloured
+        # against the same cell: green if no more than green_tol_db worse,
+        # yellow if no more than yellow_tol_db worse, red otherwise.
+        "reference": {
+            "S11": {"min": -60.98, "max": -9.95, "median": -18.36, "at_diag": -37.36},
+            "S21": {"min": 44.85, "max": 47.34, "median": 46.99, "at_diag": 47.29},
+            "S12": {"min": -81.70, "max": -78.33, "median": -78.92, "at_diag": -78.42},
+            "S22": {"min": -32.68, "max": -21.83, "median": -24.76, "at_diag": -24.60},
+        },
+        "green_tol_db": 0.5,
+        "yellow_tol_db": 2.0,
+        # S11/S22 at or below these are green regardless of the simulation:
+        # notch depth varies board to board and anything this low is well matched
+        "match_floor_db": {"S11": -12.0, "S22": -20.0},
     },
 }
 
@@ -510,6 +527,26 @@ class MeasurementManager:
             diag[param] = round(mag_db, 3)
         return diag
 
+    def get_band_values(self, results, band=HIGHLIGHT_FREQ_RANGE):
+        """
+        S-parameter magnitude statistics across a frequency band.
+
+        Returns:
+            dict: {param: {"min", "max", "median"}} in dB for S11, S21, S12, S22
+        """
+        band_vals = {}
+        for param in ["S11", "S21", "S12", "S22"]:
+            freqs = np.array([pt[0] for pt in results[param]])
+            complex_vals = np.array([pt[1] for pt in results[param]])
+            in_band = (freqs >= band[0]) & (freqs <= band[1])
+            mag_db = 20 * np.log10(np.abs(complex_vals[in_band]) + 1e-12)
+            band_vals[param] = {
+                "min": float(np.min(mag_db)),
+                "max": float(np.max(mag_db)),
+                "median": float(np.median(mag_db)),
+            }
+        return band_vals
+
     # ── CSV Logging ─────────────────────────────────────────────────────
 
     def _read_csv_rows(self):
@@ -614,33 +651,79 @@ def print_sweep_config(start_freq, stop_freq, num_points, power, ifbw):
     console.print()
 
 
-def print_diagnostic_table(part_number, current_draw, diag_values):
-    """Display diagnostic results in a rich table."""
-    table = Table(
-        title=f"Diagnostics @ {DIAGNOSTIC_FREQ/1e6:.0f} MHz — {part_number}",
-        box=box.HEAVY_EDGE,
-        title_style="bold green",
-    )
-    table.add_column("Parameter", style="bold")
-    table.add_column("Value (dB)", justify="right", style="cyan")
+def diag_color(param, val):
+    """Color-code one S-parameter value (dB): green good, yellow moderate, red bad."""
+    if param == "S21" and DEVICE["s21_good_db"] is not None:
+        return "green" if val > DEVICE["s21_good_db"] else ("yellow" if val > 0 else "red")
+    if param in ("S11", "S22"):
+        return "green" if val < -10 else ("yellow" if val < -5 else "red")
+    return "cyan"
 
-    for param in ["S11", "S21", "S12", "S22"]:
-        val = diag_values[param]
-        # Color-code: green for good gain (S21), yellow for moderate, red for bad
-        if param == "S21" and DEVICE["s21_good_db"] is not None:
-            color = "green" if val > DEVICE["s21_good_db"] else ("yellow" if val > 0 else "red")
-        elif param in ("S11", "S22"):
-            color = "green" if val < -10 else ("yellow" if val < -5 else "red")
-        else:
-            color = "cyan"
-        table.add_row(param, f"[{color}]{val:.3f}[/]")
 
-    current_range = DEVICE["current_ma_range"]
-    if current_range is None:
+def reference_color(param, stat, val):
+    """
+    Color a value against the device's simulated reference for the same cell.
+    Higher is better for S21; lower is better for S11, S12 and S22. Values at
+    or below the parameter's match_floor_db are always green.
+    """
+    floor = DEVICE["match_floor_db"].get(param)
+    if floor is not None and val <= floor:
+        return "green"
+    ref = DEVICE["reference"][param][stat]
+    worse_by = (ref - val) if param == "S21" else (val - ref)
+    if worse_by <= DEVICE["green_tol_db"]:
+        return "green"
+    if worse_by <= DEVICE["yellow_tol_db"]:
+        return "yellow"
+    return "red"
+
+
+def current_cell(current_draw):
+    """Current draw, coloured by its distance from the device's nominal (if it has one)."""
+    spec = DEVICE["current_ma"]
+    if spec is None:
         color = "magenta"
     else:
-        color = "green" if current_range[0] <= current_draw <= current_range[1] else "red"
-    table.add_row("Current Draw", f"[{color}]{current_draw} mA[/]")
+        off_by = abs(current_draw - spec["nominal"])
+        color = "green" if off_by <= spec["green_tol"] else ("yellow" if off_by <= spec["yellow_tol"] else "red")
+    return f"[{color}]{current_draw} mA[/]"
+
+
+def print_diagnostic_table(part_number, current_draw, diag_values, band_values=None):
+    """
+    Display diagnostic results in a rich table.
+
+    band_values: optional {param: {"min", "max", "median"}} over HIGHLIGHT_FREQ_RANGE;
+    when given, those columns are shown next to the DIAGNOSTIC_FREQ value and every
+    cell is coloured against the device's simulated "reference".
+    """
+    if band_values is None:
+        table = Table(
+            title=f"Diagnostics @ {DIAGNOSTIC_FREQ/1e6:.0f} MHz — {part_number}",
+            box=box.HEAVY_EDGE,
+            title_style="bold green",
+        )
+        table.add_column("Parameter", style="bold")
+        table.add_column("Value (dB)", justify="right", style="cyan")
+        for param in ["S11", "S21", "S12", "S22"]:
+            val = diag_values[param]
+            table.add_row(param, f"[{diag_color(param, val)}]{val:.3f}[/]")
+        table.add_row("Current Draw", current_cell(current_draw))
+    else:
+        lo, hi = HIGHLIGHT_FREQ_RANGE[0] / 1e6, HIGHLIGHT_FREQ_RANGE[1] / 1e6
+        table = Table(
+            title=f"Diagnostics {lo:.0f}–{hi:.0f} MHz — {part_number}",
+            box=box.HEAVY_EDGE,
+            title_style="bold green",
+        )
+        table.add_column("Parameter (dB)", style="bold")
+        for name in ["Min", "Max", "Median", f"At {DIAGNOSTIC_FREQ/1e6:.0f} MHz"]:
+            table.add_column(name, justify="right")
+        stats = ["min", "max", "median", "at_diag"]
+        for param in ["S11", "S21", "S12", "S22"]:
+            vals = {**band_values[param], "at_diag": diag_values[param]}
+            table.add_row(param, *(f"[{reference_color(param, k, vals[k])}]{vals[k]:.2f}[/]" for k in stats))
+        table.add_row("Current Draw", "", "", "", current_cell(current_draw))
     console.print(table)
     console.print()
 
@@ -940,8 +1023,10 @@ def step_save_and_report(controller, manager, results, part_number,
     # ── Diagnostics ──
     console.print(f"\n[bold]Step 7: Diagnostics @ {DIAGNOSTIC_FREQ/1e6:.0f} MHz[/]")
 
+    # Only the DIAGNOSTIC_FREQ values are logged; band statistics are display-only
     diag_values = manager.get_diagnostic_values(results)
-    print_diagnostic_table(part_number, current_draw, diag_values)
+    band_values = manager.get_band_values(results) if DEVICE["band_table"] else None
+    print_diagnostic_table(part_number, current_draw, diag_values, band_values)
 
     # ── CSV ──
     console.print("[bold]Step 8: Logging to CSV[/]")

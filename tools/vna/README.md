@@ -32,7 +32,7 @@ So every measurement can be traced back to its calibration, the script records t
 - **Hardware:** LibreVNA and LibreCAL connected via USB.
 - **Software:** 
   - LibreVNA-GUI running with the SCPI server enabled (default port `19542`).
-  - [uv](https://docs.astral.sh/uv/). Python and all packages are pinned in the repo's `pyproject.toml` / `uv.lock` and installed automatically on first run.
+  - [uv](https://docs.astral.sh/uv/). Python and all packages are pinned in the repo's `pyproject.toml` / `uv.lock` and installed automatically on first run. To use an activated virtual environment instead, run `uv sync && source .venv/bin/activate` in the repo root and call `python tools/vna/sparams.py --device lna|bac` directly.
 
 ## Usage
 
@@ -48,6 +48,15 @@ So every measurement can be traced back to its calibration, the script records t
    - **Calibration Instance:** Pick an existing setup or create a new one. When creating a new one, the script will let you select a base `.cal` file and can automatically mathematically compute the electrical delay of any adapters by measuring an OPEN or SHORT.
    - **Verify:** Attach a verification standard (like a THRU). The script will immediately print a 4-panel LogMag and 4-panel Smith Chart directly into your terminal alongside numeric metrics to verify the calibration.
    - **Measure devices:** Enter the device number, polarization and current draw. The script will measure the device, strip out the adapter delay, save a Touchstone file, generate an A4-optimized high-res PNG, and log it to the CSV.
+
+## Diagnostic colour coding
+
+After each measurement the terminal shows a colour-coded diagnostics table. Only the values at 444 MHz are written to the diagnostic log.
+
+- **LNA:** one value per S-parameter at 444 MHz. S21 is green above 33 dB; S11/S22 are green below −10 dB and yellow below −5 dB. Current draw is not colour-coded.
+- **Backboard:** min, max and median over 390–483 MHz plus the 444 MHz value. Each cell is compared with the simulated value for that cell (`reference` in `DEVICES`): green if no more than 0.5 dB worse, yellow if no more than 2 dB worse, red otherwise (worse = lower S21, higher S11/S12/S22). S11 at or below −12 dB and S22 at or below −20 dB are always green ("good enough" match). Current draw is green within ±3 mA of 55 mA, yellow within ±6 mA, red otherwise.
+
+All of these numbers live in the `DEVICES` table at the top of `sparams.py`.
 
 ## Advanced Features
 - **Auto-computed De-embedding:** The script uses NumPy phase unwrapping and linear regression to auto-compute adapter electrical delays exactly in picoseconds. This shift is mathematically applied to all S-parameters before export.
