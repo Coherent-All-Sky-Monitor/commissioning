@@ -76,7 +76,7 @@ DEVICES = {
         "log_file": "lna_diagnostic_log.csv",
         "max_power_dbm": -40.0,   # LNA input safety limit
         "s21_good_db": 33.0,      # S21 at DIAGNOSTIC_FREQ shown green above this (nominal ~34.5 dB)
-        "current_ma": None,       # current draw: {"nominal", "green_tol", "yellow_tol"} in mA
+        "current_ma": None,       # current draw ensemble (median, sigma) in mA
         "band_table": False,      # show min/max/median over HIGHLIGHT_FREQ_RANGE too (display only)
     },
     "bac": {
@@ -85,24 +85,45 @@ DEVICES = {
         "data_dir": "BB/s_params",
         "log_file": "bac_diagnostic_log.csv",
         "max_power_dbm": -40.0,
-        "s21_good_db": None,      # colours come from "reference" below
-        # Spread allowed around the nominal current draw (mA)
-        "current_ma": {"nominal": 55.0, "green_tol": 3.0, "yellow_tol": 6.0},
+        "s21_good_db": None,      # colours come from "ensemble" below
+        # Current draw (mA) over the ensemble: (median, robust sigma)
+        "current_ma": (59.0, 1.48),
         "band_table": True,
-        # Simulated S-parameters (dB) over 390-483 MHz; measured values are coloured
-        # against the same cell: green if no more than green_tol_db worse,
-        # yellow if no more than yellow_tol_db worse, red otherwise.
-        "reference": {
-            "S11": {"min": -60.98, "max": -9.95, "median": -18.36, "at_diag": -37.36},
-            "S21": {"min": 44.85, "max": 47.34, "median": 46.99, "at_diag": 47.29},
-            "S12": {"min": -81.70, "max": -78.33, "median": -78.92, "at_diag": -78.42},
-            "S22": {"min": -32.68, "max": -21.83, "median": -24.76, "at_diag": -24.60},
+        # Measured ensemble: 51 boards BAC00029P1-BAC00084P1 (through 2026-10-27).
+        # Each table cell (dB) as (median, sigma) across boards, with sigma from
+        # the median absolute deviation (1.4826 * MAD) so outlier boards don't
+        # widen it; see ensemble_color() for how a new measurement is coloured.
+        "ensemble": {
+            "S11": {
+                "min":     (-23.22, 2.15),
+                "max":     ( -9.25, 1.05),
+                "median":  (-18.25, 0.81),
+                "at_diag": (-19.93, 2.17),
+            },
+            "S21": {
+                "min":     (41.67, 0.56),
+                "max":     (44.90, 0.29),
+                "median":  (44.24, 0.28),
+                "at_diag": (44.85, 0.28),
+            },
+            "S12": {
+                "min":     (-69.60, 5.31),
+                "max":     (-37.56, 0.96),
+                "median":  (-52.25, 0.87),
+                "at_diag": (-52.14, 6.20),
+            },
+            "S22": {
+                "min":     (-26.73, 2.77),
+                "max":     (-12.15, 2.30),
+                "median":  (-18.42, 0.83),
+                "at_diag": (-18.32, 2.36),
+            },
         },
-        "green_tol_db": 0.5,
-        "yellow_tol_db": 2.0,
-        # S11/S22 at or below these are green regardless of the simulation:
-        # notch depth varies board to board and anything this low is well matched
-        "match_floor_db": {"S11": -12.0, "S22": -20.0},
+        # Only values above the ensemble median count against these; anything
+        # lower is green. S11/S22: a better match than usual is fine. S12: mostly
+        # the VNA noise floor, so only a rise above it (real leakage) matters.
+        # S21 is checked both ways: gain must match the other boards.
+        "lower_is_better": ("S11", "S12", "S22"),
     },
 }
 
@@ -660,32 +681,33 @@ def diag_color(param, val):
     return "cyan"
 
 
-def reference_color(param, stat, val):
+def ensemble_color(val, spread, lower_is_better=False):
     """
-    Color a value against the device's simulated reference for the same cell.
-    Higher is better for S21; lower is better for S11, S12 and S22. Values at
-    or below the parameter's match_floor_db are always green.
+    Color a value against an ensemble (median, sigma): green within 3 sigma of
+    the median, yellow within 6 sigma, red beyond. With lower_is_better, only
+    the distance above the median counts, so anything below it is green.
     """
-    floor = DEVICE["match_floor_db"].get(param)
-    if floor is not None and val <= floor:
+    median, sigma = spread
+    off_by = (val - median) / sigma
+    if not lower_is_better:
+        off_by = abs(off_by)
+    if off_by <= 3:
         return "green"
-    ref = DEVICE["reference"][param][stat]
-    worse_by = (ref - val) if param == "S21" else (val - ref)
-    if worse_by <= DEVICE["green_tol_db"]:
-        return "green"
-    if worse_by <= DEVICE["yellow_tol_db"]:
+    if off_by <= 6:
         return "yellow"
     return "red"
 
 
+def cell_color(param, stat, val):
+    """Color one band-table cell against the device's ensemble for that cell."""
+    return ensemble_color(val, DEVICE["ensemble"][param][stat],
+                          lower_is_better=param in DEVICE["lower_is_better"])
+
+
 def current_cell(current_draw):
-    """Current draw, coloured by its distance from the device's nominal (if it has one)."""
+    """Current draw, coloured against the device's ensemble (if it has one)."""
     spec = DEVICE["current_ma"]
-    if spec is None:
-        color = "magenta"
-    else:
-        off_by = abs(current_draw - spec["nominal"])
-        color = "green" if off_by <= spec["green_tol"] else ("yellow" if off_by <= spec["yellow_tol"] else "red")
+    color = "magenta" if spec is None else ensemble_color(current_draw, spec)
     return f"[{color}]{current_draw} mA[/]"
 
 
@@ -695,7 +717,7 @@ def print_diagnostic_table(part_number, current_draw, diag_values, band_values=N
 
     band_values: optional {param: {"min", "max", "median"}} over HIGHLIGHT_FREQ_RANGE;
     when given, those columns are shown next to the DIAGNOSTIC_FREQ value and every
-    cell is coloured against the device's simulated "reference".
+    cell is coloured against the device's measured "ensemble".
     """
     if band_values is None:
         table = Table(
@@ -722,7 +744,7 @@ def print_diagnostic_table(part_number, current_draw, diag_values, band_values=N
         stats = ["min", "max", "median", "at_diag"]
         for param in ["S11", "S21", "S12", "S22"]:
             vals = {**band_values[param], "at_diag": diag_values[param]}
-            table.add_row(param, *(f"[{reference_color(param, k, vals[k])}]{vals[k]:.2f}[/]" for k in stats))
+            table.add_row(param, *(f"[{cell_color(param, k, vals[k])}]{vals[k]:.2f}[/]" for k in stats))
         table.add_row("Current Draw", "", "", "", current_cell(current_draw))
     console.print(table)
     console.print()
