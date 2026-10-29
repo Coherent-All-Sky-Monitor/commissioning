@@ -52,7 +52,7 @@ python tools/noise_figure/nf.py --device bac --all  # same as ./bac_nf.sh --all
 Re-run `uv sync` after pulling changes to `pyproject.toml` / `uv.lock`. To upgrade every package to its latest release, run `uv lock --upgrade && uv sync` and commit the new `uv.lock`.
 
 ---
-# as of July 20
+# as of October 29
 
 ## S-Parameter Data
 
