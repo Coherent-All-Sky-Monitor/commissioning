@@ -2,6 +2,8 @@
 
 I will record all of CASM hardware commissioning data and files in this repository. This workspace contains automation/data acquisition scripts, data, and reference manuals for characterizing receiver components, including Low Noise Amplifiers (LNAs), backend boards and antennas.
 
+
+- Pranav S
 ---
 
 ## Setup
