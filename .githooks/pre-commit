@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Regenerate the S-parameter ensemble JSON (tools/vna/ensemble.py) when a commit
+# touches touchstones, diagnostic logs or the script itself, and add it to the commit.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+set -euo pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+
+if git diff --cached --name-only |
+    grep -qE '^[^/]+/s_params/(touchstone/.*\.s2p|[^/]+_diagnostic_log\.csv)$|^tools/vna/(ensemble|sparams)\.py$'; then
+    echo "pre-commit: regenerating S-parameter ensemble data"
+    "$REPO/tools/run_python.sh" tools/vna/ensemble.py
+    git -C "$REPO" add -A -- ':(glob)*/s_params/ensemble_P*.json'
+fi

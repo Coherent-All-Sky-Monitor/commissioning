@@ -19,6 +19,12 @@ The only other requirement is [uv](https://docs.astral.sh/uv/), which installs t
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+Enable the repo's git hooks once (they keep the ensemble plots on the data viewer pages up to date when you commit new measurements; see `tools/vna/README.md`):
+
+```bash
+git config core.hooksPath .githooks
+```
+
 All commands below are run from the `commissioning` folder. To get the latest scripts and data later, run `git pull` there.
 
 There are two ways to run things; both use the same environment in `.venv/`.

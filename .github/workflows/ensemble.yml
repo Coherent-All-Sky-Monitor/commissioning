@@ -1,0 +1,44 @@
+# Backup for the pre-commit hook (.githooks/pre-commit): regenerates the
+# S-parameter ensemble JSON on pushes that touch the data, and commits it only
+# if it changed, e.g. after a web upload or a commit made without the hook.
+name: S-parameter ensemble
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*/s_params/touchstone/**"
+      - "*/s_params/*_diagnostic_log.csv"
+      - "tools/vna/ensemble.py"
+      - "tools/vna/sparams.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sparam-ensemble
+  cancel-in-progress: false
+
+jobs:
+  ensemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build ensemble data
+        run: uv run --locked python tools/vna/ensemble.py
+
+      - name: Commit if changed
+        run: |
+          git add -A -- ':(glob)*/s_params/ensemble_P*.json'
+          if git diff --cached --quiet; then
+            echo "Ensemble data already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Regenerate S-parameter ensemble data"
+          git push

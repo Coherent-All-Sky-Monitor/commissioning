@@ -1,0 +1,157 @@
+{% comment %}
+  Interactive ensemble plot for one device's S-parameter folder: one 2x2 panel
+  (S11, S21, S12, S22) per polarization, from the ensemble_P<n>.json files that
+  tools/vna/ensemble.py writes. Median solid, 5-95% shaded, min/max dotted.
+  Params: data_dir (e.g. "/LNA/s_params/").
+{% endcomment %}
+<link rel="stylesheet" href="{{ '/assets/js/uplot/uPlot.min.css' | relative_url }}">
+<script src="{{ '/assets/js/uplot/uPlot.iife.min.js' | relative_url }}"></script>
+<style>
+  .sp-ens { margin: 25px 0 35px 0; }
+  .sp-ens-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .sp-ens-head h3 { margin: 0; flex: 1; }
+  .sp-ens-head button { font-size: 0.85em; border: 1px solid #ccc; padding: 6px 12px; border-radius: 4px; background-color: #fafafa; color: inherit; cursor: pointer; }
+  .sp-ens-head button.active { color: white; background-color: #0366d6; border-color: #0366d6; }
+  .sp-ens-meta { font-size: 0.85em; color: #666; margin: 6px 0 12px 0; }
+  .sp-ens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .sp-ens-grid > div { min-width: 0; }
+  .sp-ens .u-title { font-size: 15px; }
+  .sp-ens .u-legend { font-size: 12px; }
+  .sp-ens details { font-size: 0.85em; margin-top: 10px; }
+  @media (max-width: 760px) { .sp-ens-grid { grid-template-columns: 1fr; } }
+</style>
+
+{% assign files_sorted = site.static_files | sort: "path" %}
+{% for file in files_sorted %}
+  {% if file.path contains include.data_dir and file.extname == ".json" and file.basename contains "ensemble_P" %}
+  <div class="sp-ens" data-src="{{ file.path | relative_url }}">
+    <div class="sp-ens-head">
+      <h3>Ensemble</h3>
+      <button type="button" data-zoom="full" class="active">Full range</button>
+      <button type="button" data-zoom="band">Band</button>
+    </div>
+    <div class="sp-ens-meta">Loading ensemble data...</div>
+    <div class="sp-ens-grid"></div>
+  </div>
+  {% endif %}
+{% endfor %}
+
+<script>
+  (function() {
+    const PANELS = ["S11", "S21", "S12", "S22"];
+    const LINE = "#1565C0";                         // magnitude colour of the per-board plots
+    const SPREAD_FILL = "rgba(21, 101, 192, 0.18)";
+    const SPREAD_EDGE = "rgba(21, 101, 192, 0.35)";
+    const BAND_FILL = "rgba(33, 150, 243, 0.08)";   // shaded band, as on the per-board plots
+
+    const fmtDb = (u, v) => v == null ? "–" : v.toFixed(2) + " dB";
+
+    // Shade the band of interest behind the traces
+    function shadeBand(band) {
+      return u => {
+        const left = Math.max(u.valToPos(band[0], "x", true), u.bbox.left);
+        const right = Math.min(u.valToPos(band[1], "x", true), u.bbox.left + u.bbox.width);
+        if (right <= left) return;
+        u.ctx.save();
+        u.ctx.fillStyle = BAND_FILL;
+        u.ctx.fillRect(left, u.bbox.top, right - left, u.bbox.height);
+        u.ctx.restore();
+      };
+    }
+
+    function panelWidth(grid) {
+      const style = getComputedStyle(grid);
+      const columns = style.gridTemplateColumns.split(" ").length;
+      const gap = parseFloat(style.columnGap) || 0;
+      return Math.floor((grid.clientWidth - gap * (columns - 1)) / columns);
+    }
+
+    async function render(box) {
+      const meta = box.querySelector(".sp-ens-meta");
+      const grid = box.querySelector(".sp-ens-grid");
+      let d;
+      try {
+        const res = await fetch(box.dataset.src);
+        if (!res.ok) throw new Error(res.status);
+        d = await res.json();
+      } catch (e) {
+        meta.textContent = "Could not load ensemble data.";
+        return;
+      }
+
+      box.querySelector("h3").textContent = `Ensemble — Polarization ${d.polarization.slice(1)}`;
+      const latest = d.latest_measurement ? `, latest measured ${d.latest_measurement.slice(0, 10)}` : "";
+      meta.textContent = `${d.n_boards} boards${latest}. Hover for values, drag to zoom, double-click to reset.`;
+      if (d.excluded.length) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = `${d.excluded.length} bad board${d.excluded.length > 1 ? "s" : ""} left out`;
+        const list = document.createElement("ul");
+        d.excluded.forEach(e => {
+          const li = document.createElement("li");
+          li.textContent = `${e.part_number}: ${e.reason}`;
+          list.appendChild(li);
+        });
+        details.append(summary, list);
+        box.appendChild(details);
+      }
+
+      // Keep the x range of all four panels together
+      const charts = [];
+      let syncing = false;
+      function syncX(src) {
+        if (syncing) return;
+        syncing = true;
+        charts.forEach(c => { if (c !== src) c.setScale("x", { min: src.scales.x.min, max: src.scales.x.max }); });
+        syncing = false;
+      }
+
+      const width = panelWidth(grid);
+      PANELS.forEach(param => {
+        const s = d[param];
+        const el = document.createElement("div");
+        grid.appendChild(el);
+        charts.push(new uPlot({
+          title: param,
+          width: width,
+          height: Math.round(width * 0.62),
+          cursor: { sync: { key: box.dataset.src }, drag: { x: true, y: false } },
+          scales: { x: { time: false } },
+          axes: [{ label: "Frequency (MHz)" }, { label: `|${param}| (dB)` }],
+          series: [
+            { label: "Freq", value: (u, v) => v == null ? "–" : v.toFixed(1) + " MHz" },
+            { label: "Min", stroke: LINE, width: 1, dash: [4, 4], value: fmtDb },
+            { label: "5%", stroke: SPREAD_EDGE, width: 1, value: fmtDb },
+            { label: "Median", stroke: LINE, width: 2, value: fmtDb },
+            { label: "95%", stroke: SPREAD_EDGE, width: 1, value: fmtDb },
+            { label: "Max", stroke: LINE, width: 1, dash: [4, 4], value: fmtDb },
+          ],
+          bands: [{ series: [4, 2], fill: SPREAD_FILL }],
+          hooks: {
+            drawClear: [shadeBand(d.band_mhz)],
+            setScale: [(u, key) => { if (key === "x") syncX(u); }],
+          },
+        }, [d.freq_mhz, s.min, s.p5, s.median, s.p95, s.max], el));
+      });
+
+      // Full range / band zoom buttons
+      const full = [d.freq_mhz[0], d.freq_mhz[d.freq_mhz.length - 1]];
+      const buttons = box.querySelectorAll("button[data-zoom]");
+      buttons.forEach(btn => {
+        if (btn.dataset.zoom === "band") btn.textContent = `Band ${d.band_mhz[0]}–${d.band_mhz[1]} MHz`;
+        btn.addEventListener("click", () => {
+          const [min, max] = btn.dataset.zoom === "band" ? d.band_mhz : full;
+          charts[0].setScale("x", { min, max });
+          buttons.forEach(b => b.classList.toggle("active", b === btn));
+        });
+      });
+
+      new ResizeObserver(() => {
+        const w = panelWidth(grid);
+        charts.forEach(c => c.setSize({ width: w, height: Math.round(w * 0.62) }));
+      }).observe(grid);
+    }
+
+    document.querySelectorAll(".sp-ens").forEach(render);
+  })();
+</script>
